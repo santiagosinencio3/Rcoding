@@ -1,0 +1,278 @@
+---
+title: "Análisis de los gastos de la alcaldía para atender solicitudes ciudadanas"
+author: "Nombre del estudiante"
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: false
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.align = "center", fig.width = 8, fig.height = 5)
+options(knitr.kable.NA = "")
+```
+
+# Datos
+
+Se cargan los gastos (en dólares) de los 80 trabajos realizados por la alcaldía.
+El archivo de Excel debe estar en la misma carpeta que este `.Rmd`. El código acepta
+tanto una hoja con dos columnas (`ID trabajo`, `Gasto`) como la hoja con cuatro
+bloques de columnas `ID trabajo | Gasto` uno al lado del otro; toma todas las
+columnas cuyo nombre empieza con "Gasto" y elimina el signo `$` si viene como texto.
+
+```{r datos}
+library(readxl)
+library(knitr)
+
+archivo <- "gastos_alcaldia.xlsx"   # <-- cambia el nombre si tu archivo se llama distinto
+
+limpiar <- function(x) as.numeric(gsub("[$, ]", "", as.character(x)))
+
+if (file.exists(archivo)) {
+  bd    <- read_excel(archivo)
+  cols  <- grep("^gasto", trimws(names(bd)), ignore.case = TRUE)
+  gasto <- limpiar(unlist(bd[cols], use.names = FALSE))
+  gasto <- gasto[!is.na(gasto)]
+} else {
+  # Respaldo: los mismos datos del enunciado (ID 1 a 80, en orden)
+  gasto <- c(64, 53, 48, 58, 51, 36, 47, 50, 45, 37, 60, 68, 33, 27, 34, 73, 45, 40, 61, 40,
+             58, 40, 71, 67, 63, 48, 45, 41, 52, 64, 62, 43, 57, 60, 51, 55, 28, 75, 46, 38,
+             47, 60, 29, 72, 38, 25, 32, 60, 39, 41, 56, 52, 63, 74, 42, 67, 30, 66, 55, 26,
+             58, 35, 59, 31, 57, 69, 66, 57, 39, 54, 50, 57, 57, 65, 49, 57, 55, 58, 44, 54)
+}
+
+n <- length(gasto)
+resumen <- data.frame(n = n, min = min(gasto), max = max(gasto),
+                      rango = max(gasto) - min(gasto))
+kable(resumen, col.names = c("n", "Mínimo", "Máximo", "Rango"),
+      caption = "Resumen de los datos")
+```
+
+# a) Tabla de frecuencias con 5 intervalos de ancho 10
+
+El gasto mínimo es de \$`r min(gasto)` y el máximo de \$`r max(gasto)`, por lo que el
+rango es `r max(gasto) - min(gasto)`. Con 5 intervalos de ancho 10 partiendo del mínimo
+(25) se cubre exactamente de 25 a 75. Los intervalos son cerrados a la izquierda y
+abiertos a la derecha, $[L_i, L_s)$, excepto el último, que incluye el valor 75.
+
+```{r tabla-frecuencias}
+ancho  <- 10
+k      <- 5
+limites <- seq(25, 25 + k * ancho, by = ancho)   # 25 35 45 55 65 75
+
+clases <- cut(gasto, breaks = limites, right = FALSE, include.lowest = TRUE)
+
+tabla <- data.frame(
+  Intervalo = levels(clases),
+  Marca     = head(limites, -1) + ancho / 2,
+  fi        = as.vector(table(clases))
+)
+tabla$hi  <- tabla$fi / n
+tabla$Fi  <- cumsum(tabla$fi)
+tabla$Hi  <- cumsum(tabla$hi)
+tabla$pct <- round(100 * tabla$hi, 2)
+
+tabla_mostrar <- rbind(
+  transform(tabla, hi = round(hi, 4), Hi = round(Hi, 4)),
+  data.frame(Intervalo = "Total", Marca = NA, fi = sum(tabla$fi),
+             hi = sum(tabla$hi), Fi = NA, Hi = NA, pct = 100)
+)
+
+kable(tabla_mostrar,
+      col.names = c("Intervalo ($)", "Marca de clase", "Frec. absoluta (fi)",
+                    "Frec. relativa (hi)", "Frec. abs. acumulada (Fi)",
+                    "Frec. rel. acumulada (Hi)", "Porcentaje (%)"),
+      align = "c", caption = "Tabla de frecuencias de los gastos de la alcaldía")
+```
+
+```{r valores-para-texto, include=FALSE}
+f   <- tabla$fi
+p   <- tabla$pct
+mod <- which.max(f)
+```
+
+**Descripción de la situación de los gastos**
+
+- El intervalo con más trabajos es **`r tabla$Intervalo[mod]`**, con `r f[mod]` solicitudes
+  (`r p[mod]` % del total). Es decir, el gasto más frecuente para atender una
+  solicitud está entre \$55 y \$65.
+- Le sigue el intervalo `r tabla$Intervalo[3]` con `r f[3]` trabajos (`r p[3]` %).
+  Juntos, los intervalos de \$45 a \$65 concentran `r f[3] + f[4]` trabajos, es decir
+  el `r p[3] + p[4]` % de las solicitudes: la mayor parte de los gastos se ubica en la
+  zona media-alta del rango.
+- Los gastos bajos, de \$25 a \$35, son los menos frecuentes: solo `r f[1]` trabajos
+  (`r p[1]` %). Los gastos más altos, de \$65 a \$75, representan `r f[5]` trabajos
+  (`r p[5]` %).
+- Según la frecuencia acumulada, `r tabla$Fi[2]` trabajos (`r 100 * tabla$Hi[2]` %)
+  costaron menos de \$45, y `r tabla$Fi[4]` trabajos (`r 100 * tabla$Hi[4]` %) costaron
+  menos de \$65.
+- En general, la alcaldía gasta en la mayoría de los casos entre \$45 y \$65 por
+  solicitud; los trabajos muy baratos o muy caros son menos comunes. La distribución
+  tiene una ligera asimetría hacia la izquierda: hay más datos en los intervalos altos
+  y una "cola" hacia los gastos bajos.
+
+# b) Medidas de tendencia central
+
+Se calculan con los datos originales (sin agrupar) y, como comparación, con la tabla
+de frecuencias (datos agrupados).
+
+```{r tendencia-central}
+# --- Datos sin agrupar ---
+media   <- mean(gasto)
+mediana <- median(gasto)
+frec    <- table(gasto)
+moda    <- as.numeric(names(frec)[frec == max(frec)])
+
+# --- Datos agrupados ---
+media_ag <- sum(tabla$Marca * tabla$fi) / n
+
+# Mediana agrupada: Me = L + ((n/2 - F_{i-1}) / f_i) * A
+i_me   <- which(tabla$Fi >= n / 2)[1]
+F_ant  <- if (i_me == 1) 0 else tabla$Fi[i_me - 1]
+mediana_ag <- limites[i_me] + ((n / 2 - F_ant) / tabla$fi[i_me]) * ancho
+
+# Moda agrupada: Mo = L + (d1 / (d1 + d2)) * A
+i_mo <- which.max(tabla$fi)
+d1   <- tabla$fi[i_mo] - if (i_mo == 1) 0 else tabla$fi[i_mo - 1]
+d2   <- tabla$fi[i_mo] - if (i_mo == k) 0 else tabla$fi[i_mo + 1]
+moda_ag <- limites[i_mo] + (d1 / (d1 + d2)) * ancho
+
+medidas <- data.frame(
+  Medida       = c("Media", "Mediana", "Moda"),
+  sin_agrupar  = c(round(media, 2), mediana, paste(moda, collapse = ", ")),
+  agrupados    = round(c(media_ag, mediana_ag, moda_ag), 2)
+)
+kable(medidas, align = "c", caption = "Medidas de tendencia central del gasto ($)",
+      col.names = c("Medida", "Datos sin agrupar", "Datos agrupados"))
+```
+
+**Interpretación**
+
+- **Media (promedio).** Se obtiene sumando todos los gastos
+  (\$`r sum(gasto)`) y dividiendo entre el número de trabajos (`r n`):
+  $\bar{x} = `r sum(gasto)` / `r n` = `r round(media, 2)`$. En promedio, la alcaldía
+  gasta **\$`r round(media, 2)`** para atender cada solicitud. Con datos agrupados
+  ($\bar{x} = \sum x_i f_i / n$, usando las marcas de clase) se obtiene
+  \$`r round(media_ag, 2)`, un valor muy cercano; la pequeña diferencia se debe a que
+  al agrupar se supone que todos los datos de un intervalo valen su marca de clase.
+
+- **Mediana.** Es el valor que deja al 50 % de los datos por debajo y al 50 % por
+  encima. Como $n = `r n`$ es par, es el promedio de los datos que ocupan las
+  posiciones 40 y 41 una vez ordenados: **\$`r mediana`**. Esto significa que la mitad
+  de los trabajos costó \$`r mediana` o menos y la otra mitad costó más. Con la fórmula
+  para datos agrupados, la clase mediana es `r tabla$Intervalo[i_me]` y
+  $Me = `r limites[i_me]` + \frac{`r n/2` - `r F_ant`}{`r tabla$fi[i_me]`}\cdot `r ancho`
+  = `r round(mediana_ag, 2)`$.
+
+- **Moda.** Es el valor que más se repite. El gasto más frecuente es
+  **\$`r paste(moda, collapse = ", ")`**, que aparece `r max(frec)` veces. Con datos
+  agrupados, la clase modal es `r tabla$Intervalo[i_mo]` y
+  $Mo = `r limites[i_mo]` + \frac{`r d1`}{`r d1` + `r d2`}\cdot `r ancho`
+  = `r round(moda_ag, 2)`$.
+
+- **Comparación.** Se cumple que media (`r round(media, 2)`) < mediana (`r mediana`)
+  < moda (`r paste(moda, collapse = ", ")`). Este orden indica una **asimetría negativa**
+  (sesgo a la izquierda): la mayoría de los gastos son medianos o altos, y unos pocos
+  trabajos de bajo costo (\$25–\$35) "jalan" el promedio hacia abajo. Como las tres
+  medidas están relativamente cerca (entre \$51 y \$57), el gasto típico por solicitud
+  se puede resumir en aproximadamente \$50–\$57.
+
+# c) Gráficas
+
+## Histograma de frecuencias relativas
+
+En el histograma cada barra ocupa todo el ancho del intervalo (las barras están
+juntas porque la variable es continua) y su altura es la frecuencia relativa $h_i$.
+
+```{r histograma}
+par(mar = c(5, 5, 4, 2))
+plot(NA, xlim = range(limites), ylim = c(0, max(tabla$hi) * 1.15),
+     xaxt = "n", xlab = "Gasto ($)", ylab = "Frecuencia relativa (hi)",
+     main = "Histograma de frecuencias relativas del gasto")
+rect(head(limites, -1), 0, limites[-1], tabla$hi,
+     col = "steelblue", border = "white", lwd = 2)
+text(tabla$Marca, tabla$hi, labels = sprintf("%.4f", tabla$hi), pos = 3, cex = 0.9)
+axis(1, at = limites)
+```
+
+## Polígono de frecuencias absolutas
+
+El polígono une con segmentos los puntos (marca de clase, $f_i$). Para cerrarlo sobre
+el eje horizontal se agrega una clase ficticia con frecuencia 0 antes del primer
+intervalo (marca 20) y otra después del último (marca 80).
+
+```{r poligono}
+x_pol <- c(tabla$Marca[1] - ancho, tabla$Marca, tabla$Marca[k] + ancho)
+y_pol <- c(0, tabla$fi, 0)
+
+par(mar = c(5, 5, 4, 2))
+plot(x_pol, y_pol, type = "b", pch = 19, lwd = 2, col = "darkred",
+     xaxt = "n", ylim = c(0, max(tabla$fi) * 1.15),
+     xlab = "Gasto ($) - marca de clase", ylab = "Frecuencia absoluta (fi)",
+     main = "Polígono de frecuencias absolutas del gasto")
+axis(1, at = x_pol)
+text(tabla$Marca, tabla$fi, labels = tabla$fi, pos = 3)
+abline(h = 0, col = "gray50")
+```
+
+# d) Ojiva
+
+**¿Cómo se construye una ojiva?**
+
+La ojiva es la gráfica de las **frecuencias acumuladas** (absolutas o relativas). Para
+construir la ojiva "menor que":
+
+1. Se construye la tabla de frecuencias y se calcula la frecuencia acumulada $F_i$
+   de cada intervalo (sumando la frecuencia de ese intervalo y las de todos los
+   anteriores).
+2. En el eje horizontal se colocan los **límites de clase** (no las marcas de clase),
+   y en el eje vertical la frecuencia acumulada (de 0 a $n$, o de 0 a 1 si es relativa).
+3. Se marca un punto inicial en el límite inferior del primer intervalo con frecuencia
+   0 (aquí, el punto (25, 0)), porque no hay datos menores que 25.
+4. Para cada intervalo se marca un punto en su **límite superior** con altura igual a
+   su frecuencia acumulada, porque $F_i$ cuenta cuántos datos son menores que ese
+   límite.
+5. Se unen los puntos con segmentos de recta. La curva siempre es creciente y termina
+   en $n = `r n`$ (o en 100 %).
+
+La ojiva permite leer directamente cuántos trabajos costaron menos de cierto monto y
+estimar gráficamente la mediana (el valor del eje $x$ donde la curva alcanza $n/2$).
+
+```{r tabla-ojiva}
+ojiva <- data.frame(
+  limite = limites,
+  Fi     = c(0, tabla$Fi),
+  Hi     = round(c(0, tabla$Hi), 4)
+)
+kable(ojiva, align = "c", caption = "Puntos de la ojiva (menor que)",
+      col.names = c("Límite superior", "Frec. acumulada (Fi)",
+                    "Frec. rel. acumulada (Hi)"))
+```
+
+```{r ojiva}
+par(mar = c(5, 5, 4, 5))
+plot(ojiva$limite, ojiva$Fi, type = "b", pch = 19, lwd = 2, col = "darkgreen",
+     xaxt = "n", ylim = c(0, n), xlab = "Gasto ($) - límite superior de clase",
+     ylab = "Frecuencia absoluta acumulada (Fi)",
+     main = "Ojiva de los gastos de la alcaldía")
+axis(1, at = limites)
+axis(4, at = seq(0, n, length.out = 5), labels = paste0(seq(0, 100, 25), "%"))
+mtext("Frecuencia relativa acumulada", side = 4, line = 3)
+text(ojiva$limite, ojiva$Fi, labels = ojiva$Fi, pos = 2)
+abline(v = limites, h = seq(0, n, length.out = 5), col = "gray85", lty = 3)
+
+# Lectura gráfica de la mediana (n/2)
+segments(min(limites), n / 2, mediana_ag, n / 2, lty = 2, col = "gray40")
+segments(mediana_ag, n / 2, mediana_ag, 0, lty = 2, col = "gray40")
+text(mediana_ag, 2, labels = paste0("Me ≈ ", round(mediana_ag, 2)), pos = 4, cex = 0.85)
+```
+
+**Interpretación de la ojiva:** la curva crece más rápido entre \$45 y \$65, que es
+donde se concentra la mayoría de los gastos. Se observa que `r tabla$Fi[2]` trabajos
+costaron menos de \$45 y `r tabla$Fi[4]` menos de \$65. Trazando una línea horizontal
+en $n/2 = `r n/2`$ se obtiene que la mediana es aproximadamente
+\$`r round(mediana_ag, 2)`, lo que coincide con lo calculado en el inciso b).
